@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}-{{ .Values.stage }}
+  namespace: {{ .Chart.Name }}-{{ .Values.stage }}
+  labels:
+    app: {{ .Chart.Name }}-{{ .Values.stage }}
+spec:
+  replicas: {{ .Values.replicaCount}}
+  selector:
+    matchLabels:
+      app: "{{ .Chart.Name }}-{{ .Values.stage }}"
+  template:
+    metadata:
+      labels:
+        app: "{{ .Chart.Name }}-{{ .Values.stage }}"
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/sealed-server-secret.yaml" ) . | sha256sum}}
+    spec:
+      containers:
+      - name: "{{ .Chart.Name }}-{{ .Values.stage }}"
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        envFrom:
+        - secretRef:
+            name: "{{ .Chart.Name }}-{{ .Values.stage }}-secret"
+        ports:
+        - containerPort: {{ .Values.image.containerPort }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.image.containerPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 15
+          failureThreshold: 3
+      - name: {{ .Chart.Name }}-sidecar
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        envFrom:
+        - secretRef:
+            name: "{{ .Chart.Name }}-{{ .Values.stage }}-secret"
+        command: ["sh"]
+        args: ["./scripts/run_outbox.sh"]
+        livenessProbe:
+          exec:
+            command: 
+              - sh
+              - -c 
+              - "! test -f ./health && echo 0"
+      imagePullSecrets:
+      - name: "{{ .Values.image.imagePullSecret }}-{{ .Values.stage }}"
